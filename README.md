@@ -1,4 +1,4 @@
-# Gmail Job Email Processor
+# AI Gmail Job Manager
 
 An intelligent email processor that uses AI to automatically manage your job-related emails in Gmail. The system analyzes incoming emails to identify job opportunities, interview requests, and rejections, then takes appropriate actions like labeling important emails or removing rejections.
 
@@ -21,8 +21,8 @@ An intelligent email processor that uses AI to automatically manage your job-rel
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/yourusername/gmail_reader.git
-cd gmail_reader
+git clone https://github.com/rastinder/ai-gmail-job-manager.git
+cd ai-gmail-job-manager
 ```
 
 2. Install dependencies:
