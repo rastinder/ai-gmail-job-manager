@@ -45,17 +45,55 @@ pip install -r requirements.txt
 
 ### LLM Configuration (llm/secret.yaml)
 
+Note: We have updated our configuration format. The example files might contain old configuration formats.
+
 ```yaml
-api_keys:
-  openai: "your-api-key-here"
+# Active Provider Configuration
+active_provider: 'codestral'  # Options: 'codestral', 'openai', 'llama'
 
+# Feature Flags
+features:
+  enable_delete_rejection: true
+  enable_delete_job_application: true
+
+# Codestral Configuration
+codestral:
+  api_keys:
+    - 'your-codestral-key-here'
+  llm_api_url: 'https://codestral.mistral.ai/v1'
+  llm_model: 'codestral-latest'
+  max_tpm: 500000
+  max_monthly_tokens: 1000000000
+  max_rps: 1
+  max_tokens: 256768
+
+# OpenAI Configuration  
+openai:
+  api_keys:
+    - 'your-openai-key-here'
+  llm_model: 'gpt-4-turbo-preview'
+  max_tokens: 128000
+  max_rps: 3
+  temperature: 0.7
+
+# Llama Configuration
+llama:
+  api_keys:
+    - 'your-llama-key-here'
+  llm_api_url: 'http://localhost:11434'
+  llm_model: 'llama2:latest'
+  max_tokens: 4096
+  temperature: 0.7
+
+# Logging Configuration
 logging:
-  email_check_log: "logs/email_checks.log"
-  deleted_emails_log: "logs/deleted_emails.log"
-  selected_emails_log: "logs/selected_emails.log"
+  email_check_log: 'logs/email_checks.log'
+  deleted_emails_log: 'logs/deleted_emails.log'
+  selected_emails_log: 'logs/selected_emails.log'
 
+# Gmail Labels
 labels:
-  selected: "Selected"
+  selected: 'Selected'
 ```
 
 ## Usage
