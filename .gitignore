@@ -36,12 +36,15 @@ credentials.json
 token.pickle
 logs/
 *.log
+client_secret*.json
+token.json
 
 # Sensitive configuration
 llm/secret.yaml
-client_secret_*.json
+*.key
+*.pem
+.env
 
 # OS specific
 .DS_Store
-Thumbs.dbth
-token.json
+Thumbs.db
