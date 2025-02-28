@@ -98,7 +98,7 @@ def build_search_query(base_query: str = None, days: int = None) -> str:
     # Add job-related terms if no specific query provided
     if not base_query:
         job_query = ("subject:(application OR interview OR job OR position OR "
-                    "opportunity OR career OR recruitment)")
+                    "opportunity OR career OR recruitment OR Thanks OR applying)")
         queries.append(job_query)
     
     return " ".join(queries)
@@ -385,8 +385,8 @@ def main():
     parser.add_argument(
         "-n", "--num-emails",
         type=int,
-        default=50,
-        help="Number of emails to fetch (default: 50)"
+        default=150,
+        help="Number of emails to fetch (default: 150)"
     )
     parser.add_argument(
         "-l", "--label",
@@ -401,8 +401,8 @@ def main():
     parser.add_argument(
         "-d", "--days",
         type=int,
-        default=30,
-        help="Number of days to look back (default: 30)"
+        default=7,
+        help="Number of days to look back (default: 7)"
     )
     
     args = parser.parse_args()

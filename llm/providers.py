@@ -122,9 +122,16 @@ def get_system_prompt() -> str:
         "You are an AI assistant analyzing job-related emails. Analyze the content carefully to categorize emails properly.\n\n"
         f"Email Classification Guide:\n"
         "1. Rejection Analysis:\n"
-        "   - Look for explicit rejection language and patterns\n"
-        "   - Mark as 'rejection' ONLY if clear rejection is found\n"
-        "   - Rejection must be explicit and direct\n\n"
+        "   - Look for ANY clear indication of application rejection\n"
+        "   - Common rejection indicators:\n"
+        "     * Direct rejection phrases ('regret to inform', 'unfortunately')\n"
+        "     * Status updates ('position has been filled', 'moved forward with other candidates')\n"
+        "     * Closing phrases ('wish you success', 'future opportunities')\n"
+        "     * Company policy statements ('keep your resume on file', 'encourage you to apply again')\n"
+        "   - Analyze both subject and content for rejection language\n"
+        "   - Mark as 'rejection' when rejection is clear and unambiguous\n"
+        "   - Set high confidence (0.9+) when multiple rejection indicators are found\n"
+        "   - These emails should be automatically deleted when deletion is enabled\n\n"
         "2. Job Suggestion Analysis:\n"
         "   - Check for automated job suggestion patterns:\n"
         "     * 'invited to apply'\n"
@@ -134,9 +141,21 @@ def get_system_prompt() -> str:
         "   - Mark these as 'not_job' to ignore automated suggestions\n"
         "   - These are not actual applications or responses\n\n"
         "3. Acknowledgment Analysis:\n"
-        "   - Check for application confirmation patterns\n"
-        "   - Mark as 'acknowledgment' for standard responses\n"
-        "   - Application receipts and automated responses\n\n"
+        "   - Check for ANY confirmation of application submission or receipt\n"
+        "   - Explicit match patterns:\n"
+        "     * 'your application was submitted (successfully|received)'\n"
+        "     * 'successfully applied (for|to)'\n"
+        "     * 'confirm(ation|ing) (your|receipt of) application'\n"
+        "     * 'reference number.*application'\n"
+        "   - Required action: delete when confidence > 0.8\n"
+        "     * Application processing status ('application was submitted', 'has been processed')\n"
+        "     * Receipt acknowledgments ('thank you for applying', 'received your application')\n"
+        "     * System notifications ('your application data', 'copy of your application')\n"
+        "     * Common email subjects ('application confirmation', 'submission successful')\n"
+        "   - Consider automated response patterns from job portals (Workable, etc.)\n"
+        "   - When in doubt, any email confirming an application was submitted should be marked as acknowledgment\n"
+        "   - Set high confidence (0.9+) when clear submission/receipt language is found\n"
+        "   - These emails should be automatically deleted to reduce inbox clutter\n\n"
         f"{get_email_patterns()}\n\n"
         "3. Selection Analysis:\n"
         "   - Mark as 'selection' when you find:\n"
@@ -183,12 +202,33 @@ class BaseLLMProvider(ABC):
 
     def _extract_json_from_response(self, response: str) -> Dict[str, Any]:
         """Extract JSON from LLM response, handling various formats."""
+        if not response:
+            logger.error("Empty response received")
+            return None
+
+        # First try direct JSON parsing
         try:
             return json.loads(response)
         except json.JSONDecodeError:
-            json_match = re.search(r'```(?:json)?\s*({[^}]+})\s*```', response)
-            if json_match:
-                json_str = json_match.group(1)
+            pass
+
+        # Try to extract JSON from markdown code blocks
+        json_match = re.search(r'```(?:json)?\s*({[\s\S]+?})\s*```', response)
+        if json_match:
+            json_str = json_match.group(1)
+            
+            try:
+                return json.loads(json_str)
+            except json.JSONDecodeError:
+                # Clean up the JSON string
+                json_str = re.sub(r'([{\s,])(\w+):', r'\1"\2":', json_str)  # Quote unquoted keys
+                json_str = json_str.replace("'", '"')  # Replace single quotes with double quotes
+                
+                try:
+                    return json.loads(json_str)
+                except json.JSONDecodeError as e:
+                    logger.error(f"Failed to parse JSON after cleanup: {e}")
+                    logger.error(f"Cleaned JSON string: {json_str}")
                 # Quote unquoted keys
                 json_str = re.sub(r'([{\s,])([a-zA-Z_][a-zA-Z0-9_]*):',
                                 r'\1"\2":', json_str)
@@ -236,8 +276,74 @@ class BaseLLMProvider(ABC):
     def analyze_job_email(self, email_content: str) -> Dict[str, Any]:
         """Analyze job-related email content."""
         try:
+            if not email_content or not isinstance(email_content, dict):
+                logger.error(f"Invalid email content format: {type(email_content)}")
+                return {
+                    "is_job_related": False,
+                    "type": "unknown",
+                    "action": "keep",
+                    "confidence": 0.0,
+                    "reason": "Invalid email content"
+                }
+
+            # Extract application confirmation patterns
+            confirmation_patterns = [
+                'application received',
+                'application has been processed',
+                'application was submitted',
+                'we have received your application',
+                'we will review your application',
+                'your application will be reviewed',
+                'thank you for your application',
+                'thank you for applying',
+                'successfully submitted',
+                'submitted successfully',
+                'copy of your application',
+                'application data',
+                'application confirmation'
+            ]
+            
+            # Extract rejection patterns
+            rejection_patterns = [
+                'regret to inform',
+                'unfortunately',
+                'not selected',
+                'position has been filled',
+                'decided to move forward with other candidates',
+                'wish you success',
+                'best of luck',
+                'future opportunities'
+            ]
+
+            content = email_content.get('content', '').lower()
+            subject = email_content.get('subject', '').lower()
+
+            # Check for application confirmation
+            is_confirmation = any(pattern in content.lower() for pattern in confirmation_patterns)
+            if is_confirmation:
+                logger.info(f"Found application confirmation pattern in content: {content[:100]}...")
+                return {
+                    "is_job_related": True,
+                    "type": "acknowledgment",
+                    "action": "delete" if self.features.get('enable_delete_job_application', False) else "keep",
+                    "confidence": 0.9,
+                    "reason": "Application confirmation email detected"
+                }
+
+            # Check for rejection
+            if any(pattern in content.lower() for pattern in rejection_patterns):
+                logger.info("Found rejection patterns")
+                return {
+                    "is_job_related": True,
+                    "type": "rejection",
+                    "action": "delete" if self.features.get('enable_delete_rejection', False) else "keep",
+                    "confidence": 0.9,
+                    "reason": "Rejection email detected"
+                }
+
+            # If no patterns matched, proceed with LLM analysis
             response = self.process_text(email_content)
-            logger.debug(f"LLM Response: {response}")
+            logger.info(f"LLM Response for non-pattern matched email: {response}")
             
             default_response = {
                 "is_job_related": False,
@@ -249,27 +355,40 @@ class BaseLLMProvider(ABC):
             
             analysis = self._extract_json_from_response(response)
             if not analysis:
+                logger.error("Failed to extract JSON from LLM response")
                 return default_response
+            
+            logger.info(f"Raw LLM analysis: {analysis}")
                 
             required_fields = ['is_job_related', 'type', 'action', 'confidence']
             if not all(field in analysis for field in required_fields):
                 logger.error(f"Missing required fields in analysis: {analysis}")
                 return default_response
 
+            # Log feature flag states
+            logger.info(f"Feature flags: delete_rejection={self.features.get('enable_delete_rejection', False)}, "
+                       f"delete_job_application={self.features.get('enable_delete_job_application', False)}")
+            
             # Apply feature flags and action rules based on email type
             if analysis['type'] == 'rejection':
+                logger.info(f"Processing rejection email with confidence {analysis['confidence']}")
                 if not self.features.get('enable_delete_rejection', False):
                     logger.info("Delete rejection disabled - keeping rejection email")
                     analysis['action'] = 'keep'
                 else:
+                    logger.info("Delete rejection enabled - marking for deletion")
                     analysis['action'] = 'delete'
+                logger.info(f"Final action for rejection: {analysis['action']}")
 
             elif analysis['type'] == 'acknowledgment':
+                logger.info(f"Processing acknowledgment email with confidence {analysis['confidence']}")
                 if not self.features.get('enable_delete_job_application', False):
                     logger.info("Delete job application disabled - keeping acknowledgment email")
                     analysis['action'] = 'keep'
                 else:
+                    logger.info("Delete job application enabled - marking for deletion")
                     analysis['action'] = 'delete'
+                logger.info(f"Final action for acknowledgment: {analysis['action']}")
 
             elif analysis['type'] == 'selection':
                 analysis['action'] = 'label_selected'
@@ -283,10 +402,15 @@ class BaseLLMProvider(ABC):
                 logger.warning("non_job type must have keep action - correcting")
                 analysis['action'] = 'keep'
                 
-            # Only accept high confidence classifications for delete actions
-            if analysis['action'] == 'delete' and analysis['confidence'] < 0.8:
-                logger.info(f"Low confidence ({analysis['confidence']}) for deletion - defaulting to keep")
-                analysis['action'] = 'keep'
+            # Validate confidence for delete actions
+            if analysis['action'] == 'delete':
+                logger.info(f"Checking confidence threshold for delete action: {analysis['confidence']}")
+                if analysis['confidence'] < 0.8:
+                    logger.warning(f"Low confidence ({analysis['confidence']}) for deletion - defaulting to keep")
+                    logger.warning(f"Original type: {analysis['type']}, reason: {analysis.get('reason', 'No reason provided')}")
+                    analysis['action'] = 'keep'
+                else:
+                    logger.info(f"Confidence {analysis['confidence']} meets threshold - keeping delete action")
                 
             return analysis
             
