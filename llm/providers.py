@@ -68,7 +68,18 @@ def get_email_patterns() -> str:
         "  * 'wish you success'\n"
         "  * 'best of luck'\n"
         "  * 'future opportunities'\n"
-        "\n2. Application Acknowledgment Patterns:\n"
+        "\n2. Auto-Generated Job Emails:\n"
+        "- Job suggestion patterns:\n"
+        "  * 'invited to apply'\n"
+        "  * 'you\'re invited to apply'\n"
+        "  * 'may be interested in'\n"
+        "  * 'jobs you might like'\n"
+        "  * 'recommended job'\n"
+        "  * 'suggested position'\n"
+        "  * 'matches your profile'\n"
+        "  * 'based on your experience'\n"
+        "  * 'thought you might be interested'\n"
+        "\n3. Application Acknowledgment Patterns:\n"
         "- Initial receipt phrases:\n"
         "  * 'application received'\n"
         "  * 'application has been processed'\n"
@@ -114,7 +125,15 @@ def get_system_prompt() -> str:
         "   - Look for explicit rejection language and patterns\n"
         "   - Mark as 'rejection' ONLY if clear rejection is found\n"
         "   - Rejection must be explicit and direct\n\n"
-        "2. Acknowledgment Analysis:\n"
+        "2. Job Suggestion Analysis:\n"
+        "   - Check for automated job suggestion patterns:\n"
+        "     * 'invited to apply'\n"
+        "     * 'you might be interested in'\n"
+        "     * 'matches your profile'\n"
+        "     * 'recommended job'\n"
+        "   - Mark these as 'not_job' to ignore automated suggestions\n"
+        "   - These are not actual applications or responses\n\n"
+        "3. Acknowledgment Analysis:\n"
         "   - Check for application confirmation patterns\n"
         "   - Mark as 'acknowledgment' for standard responses\n"
         "   - Application receipts and automated responses\n\n"
@@ -170,17 +189,32 @@ class BaseLLMProvider(ABC):
             json_match = re.search(r'```(?:json)?\s*({[^}]+})\s*```', response)
             if json_match:
                 json_str = json_match.group(1)
+                # Quote unquoted keys
                 json_str = re.sub(r'([{\s,])([a-zA-Z_][a-zA-Z0-9_]*):',
-                                r'\1"\2":', json_str)  # Quote unquoted keys
-                json_str = re.sub(r'([^\\])"([^"]*)\n([^"]*)"', 
-                                r'\1"\2 \3"', json_str)  # Fix newlines in values
-                json_str = re.sub(r',\s*}', '}', json_str)  # Remove trailing commas
-                json_str = re.sub(r',\s*]', ']', json_str)  # Remove trailing commas in arrays
+                                r'\1"\2":', json_str)
+                
+                # Convert single quotes to double quotes, handling escaped quotes
+                json_str = re.sub(r"'([^']*)'", lambda m: '"{}"'.format(
+                    m.group(1).replace('"', '\\"')), json_str)
+                
+                # Fix newlines in values while preserving formatting
+                json_str = re.sub(r'([^\\])"([^"]*)\n([^"]*)"',
+                                lambda m: f'{m.group(1)}"{m.group(2)} {m.group(3)}"', json_str)
+                
+                # Clean up trailing commas
+                json_str = re.sub(r',(\s*[}\]])', r'\1', json_str)
                 try:
                     return json.loads(json_str)
                 except json.JSONDecodeError as e:
                     logger.error(f"Failed to parse cleaned JSON: {e}")
+                    logger.error(f"Original match: {json_match.group(0)}")
                     logger.error(f"Cleaned JSON string: {json_str}")
+                    logger.error(f"Error location: {str(e)}")
+                    # Try to show the problematic part of the JSON
+                    if isinstance(e, json.JSONDecodeError):
+                        error_line = json_str.splitlines()[e.lineno - 1]
+                        logger.error(f"Error context: {error_line}")
+                        logger.error(f"                {' ' * e.colno}^")
             
             logger.error(f"Could not extract valid JSON from response: {response}")
             return None
