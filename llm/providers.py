@@ -194,12 +194,26 @@ class BaseLLMProvider(ABC):
                                 r'\1"\2":', json_str)
                 
                 # Convert single quotes to double quotes, handling escaped quotes
-                json_str = re.sub(r"'([^']*)'", lambda m: '"{}"'.format(
-                    m.group(1).replace('"', '\\"')), json_str)
+                # 1. Extract key-value pairs
+                pairs = []
+                for line in json_str.split('\n'):
+                    line = line.strip()
+                    if ':' in line:
+                        key, value = line.split(':', 1)
+                        key = key.strip().strip('"\'')
+                        value = value.strip().strip(',')
+                        pairs.append((key, value))
+
+                # 2. Build properly formatted JSON
+                json_parts = []
+                json_parts.append("{")
+                for i, (key, value) in enumerate(pairs):
+                    comma = "," if i < len(pairs) - 1 else ""
+                    json_parts.append(f'  "{key}": {value}{comma}')
+                json_parts.append("}")
                 
-                # Fix newlines in values while preserving formatting
-                json_str = re.sub(r'([^\\])"([^"]*)\n([^"]*)"',
-                                lambda m: f'{m.group(1)}"{m.group(2)} {m.group(3)}"', json_str)
+                # 3. Join with proper formatting
+                json_str = "\n".join(json_parts)
                 
                 # Clean up trailing commas
                 json_str = re.sub(r',(\s*[}\]])', r'\1', json_str)
